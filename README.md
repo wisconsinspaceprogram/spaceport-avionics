@@ -12,5 +12,9 @@ Developed by AIAA UW-Madison students for use within a rocket in the Spaceport A
 ## Hardware
 This project makes use of Adafruit's Feather/Wing system for ease of assembly and modularity.
 
-MCU: https://www.adafruit.com/product/3405
+MCU - Adafruit Huzzah32 Feather: https://www.adafruit.com/product/3405
+GPS - Adafruit Ultimate GPS: https://www.adafruit.com/product/3133
+RF - Adafruit RFM95W 433MHz: https://www.adafruit.com/product/3232
+RTC/SD - Adafruit Adalogger: https://www.adafruit.com/product/2922
 
+## Learning Resources

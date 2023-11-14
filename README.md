@@ -1,4 +1,4 @@
-# spaceport-telemetry
+# AIAA UW-Madison's code for Spaceport
 Live telemetry system utilizing LoRa and APRS to report GPS and flight data to ground.
 
 Developed by AIAA UW-Madison students for use within a rocket in the Spaceport America Competition.

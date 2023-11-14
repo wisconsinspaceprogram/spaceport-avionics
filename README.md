@@ -1,7 +1,12 @@
 # AIAA UW-Madison's code for Spaceport
-Live telemetry system utilizing LoRa and APRS to report GPS and flight data to ground.
+Live telemetry system utilizing LoRa and APRS to report GPS and flight data to ground. Developed by AIAA UW-Madison students for use within a rocket in the Spaceport America Competition.
 
-Developed by AIAA UW-Madison students for use within a rocket in the Spaceport America Competition.
+## Summary
+### Purpose
+The purpose of this electronic telemetry system is primarily to log flight data (GPS, Altitude, Velocity, Pressure, Temperature, Accelerometer) to an onboard SD card as well as transmit over 433MHz to ground for live data retrieval. Additionally for 2024, this system will control the airbrake system used to achieve target altitude of 10,000' AGL.
+
+### Method
+The Flight system is comprised of an MCU, sensor, and RF components stacked together, and a similarly built Ground system will receive the radio signals for display via OLED.
 
 ## Dependencies
 - Uses Arduino IDE (https://www.arduino.cc/en/software)
@@ -12,10 +17,17 @@ Developed by AIAA UW-Madison students for use within a rocket in the Spaceport A
 ## Hardware
 This project makes use of Adafruit's Feather/Wing system for ease of assembly and modularity.
 
+### Main Components
 MCU - Adafruit Huzzah32 Feather: https://www.adafruit.com/product/3405  
 GPS - Adafruit Ultimate GPS: https://www.adafruit.com/product/3133  
 RF - Adafruit RFM95W 433MHz: https://www.adafruit.com/product/3232  
 RTC/SD - Adafruit Adalogger: https://www.adafruit.com/product/2922  
+
+### Extra Parts
+OLED Display: https://www.adafruit.com/product/4650  
+Featherwing Tripler: https://www.adafruit.com/product/3417  
+Stacking Headers: https://www.adafruit.com/product/2830
+LiPo: https://www.adafruit.com/product/3898 *Spaceport no longer allows LiPo batteries in SRAD systems so this will be replaced by a Li-Ion or other type of battery*  
 
 ## Learning Resources
 ### Electronics

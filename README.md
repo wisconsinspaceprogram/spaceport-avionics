@@ -13,6 +13,14 @@ The Flight system is comprised of an MCU, sensor, and RF components stacked toge
 - Drivers for ESP32 Feather (or follow [this guide from Adafruit](https://learn.adafruit.com/adafruit-huzzah32-esp32-feather/overview))
    - https://docs.espressif.com/projects/arduino-esp32/en/latest/installing.html
    - https://www.silabs.com/developers/usb-to-uart-bridge-vcp-drivers?tab=downloads
+- For devices with Apple silicon, Rosetta will be needed to compile with Arduino: https://support.arduino.cc/hc/en-us/articles/7765785712156-Error-bad-CPU-type-in-executable-on-macOS
+
+Hardware Libraries:
+   - Adafruit GPS https://github.com/adafruit/Adafruit_GPS
+   - Adafruit SD (installs with GPS library above)
+
+System Requirements:
+All dependencies should be compatible with Windows, Linux, and Intel/M1 macOS
 
 ## Hardware
 This project makes use of Adafruit's Feather/Wing system for ease of assembly and modularity.

@@ -1,33 +1,27 @@
-// Written by: Kyle Adler,
+// Written by: Kyle Adler, Scott Russel,
 //
-// 03/30/2023
+// 11/20/2023
 //
 // Purpose: Keep time with RTC, log flight data and GPS to SD card and trasmit over LoRa.
 // Board: Adafruit ESP32 Feather, serial at 115200.
 //
-// Code from https://randomnerdtutorials.com as well as example code from adafruit documentation.
+// Some code from https://randomnerdtutorials.com as well as example code from adafruit documentation.
 //
 //
 // !!! When powering from LiPo, ensure the polarity is correct per Adafruit's docs,
 // don't fry your charging circuit like I did.
 // https://learn.adafruit.com/adafruit-huzzah32-esp32-feather/power-management
-//
+
+
 // libraries:
-
-// gps
-#include <Adafruit_GPS.h>
-
-
-// libraries for SD card
-#include "FS.h"
-#include "SD.h"
-#include "SPI.h"
-
+#include <Adafruit_GPS.h> // gps
+#include "FS.h" // sd
+#include "SD.h" // sd
+#include "SPI.h" // sd
 
 // define A13 for lipo voltage
 //pinMode(A13, INPUT);
 float lipoVoltage;
-
 
 // define CS pin for the SD card module
 #define SD_CS 4
@@ -39,16 +33,12 @@ Adafruit_GPS GPS(&GPSSerial);
 // Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
 // Set to 'true' if you want to debug and listen to the raw GPS sentences
 #define GPSECHO false
-uint32_t timer = millis();
+uint32_t timer = millis(); // time for timestamp
 
 // variables for logging/time
 String dataMessage;
 
-
 // --- functions for sd card --- 
-
-
-
 
 void logSDCard(String dataMessage) { // write the sensor readings on the SD card
   // each "dataMessage" will be one line in the CSV output
@@ -58,8 +48,6 @@ void logSDCard(String dataMessage) { // write the sensor readings on the SD card
 //  appendFile(SD, "/data.csv", dataMessage);
 
 }
-
-
 // write to the SD card (DON'T MODIFY THIS FUNCTION)
 void writeFile(fs::FS &fs, const char * path, const char * message) {
   Serial.printf("Writing file: %s\n", path);
@@ -76,7 +64,6 @@ void writeFile(fs::FS &fs, const char * path, const char * message) {
   }
   file.close();
 }
-
 // append data to the SD card (DON'T MODIFY THIS FUNCTION)
 void appendFile(fs::FS &fs, const char * path, const char * message) {
   Serial.printf("Appending to file: %s\n", path);
@@ -94,9 +81,7 @@ void appendFile(fs::FS &fs, const char * path, const char * message) {
   file.close();
 }
 
-// --- end functions ---
-
-
+// --- end sd card functions ---
 
 void setup() {
   //while (!Serial);  // uncomment to have the sketch wait until Serial is ready
@@ -107,8 +92,7 @@ void setup() {
   Serial.println("serial started");
 
   // gps
-  // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
-  GPS.begin(9600);
+  GPS.begin(9600);   // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
   // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
   // uncomment this line to turn on only the "minimum recommended" data
@@ -123,7 +107,7 @@ void setup() {
   // Request updates on antenna status, comment out to keep quiet
   GPS.sendCommand(PGCMD_ANTENNA);
 
-  delay(1000);
+  delay(1000); // delay after gps init
 
   // Ask for firmware version
   GPSSerial.println(PMTK_Q_RELEASE);
@@ -161,7 +145,7 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
-  //Serial.println("serial test");
+  //Serial.println("serial test"); // test loop by echoing
 
   // gps
   // read data from the GPS in the 'main loop'
@@ -216,8 +200,7 @@ void loop() {
     logSDCard(String(GPS.milliseconds));
     //appendFile(
 
-
-  lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30;
+  lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30; // read battery voltage, analog pin reads half voltage, divide by resolution of ADC and multiply by board voltage
 //  Serial.println(lipoVoltage);
   delay(100); 
 }

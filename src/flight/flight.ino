@@ -30,7 +30,7 @@ float lipoVoltage;
 
 
 // define CS pin for the SD card module
-#define SD_CS 4
+#define SD_CS 33 // SD card pin is 33 for esp32
 
 // define gps serial
 #define GPSSerial Serial1
@@ -179,8 +179,8 @@ void loop() {
       return; // we can fail to parse a sentence in which case we should just wait for another
   }
 
-  // approximately every 2 seconds or so, print out the current stats
-  if (millis() - timer > 2000) {
+  // approximately every 1 second or so, print out the current stats
+  if (millis() - timer > 1000) {
     timer = millis(); // reset the timer
     Serial.print("\nTime: ");
     if (GPS.hour < 10) { Serial.print('0'); }
@@ -213,7 +213,7 @@ void loop() {
       Serial.print("Antenna status: "); Serial.println((int)GPS.antenna);
     }
 
-    logSDCard(String(GPS.milliseconds));
+    logSDCard(String(GPS.year));
     //appendFile(
 
 

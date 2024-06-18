@@ -106,7 +106,7 @@ void setup() {
 void loop() {
   // stuff
   lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30;
-
+  // Serial.println(lipoVoltage);
 
   // radio stuff
   if (rf95.available()) {
@@ -124,17 +124,37 @@ void loop() {
 
       display.clearDisplay();
       display.setCursor(0, 0);
+
       display.println("TX# RCVD: ");
-      char txnum[6]; // Buffer for latitude string (4 characters + null terminator)
-      strncpy(txnum, (char*)buf+13, 5);
-      txnum[5] = '\0'; // Null-terminate the string      
+      char txnum[7]; // Buffer for string (5 characters + null terminator)
+      strncpy(txnum, (char*)buf+52, 6);
+      txnum[6] = '\0'; // Null-terminate the string      
       display.println(txnum);
+      
       display.println("LAT: ");
-      //display.println((char*)buf);
+      char lat[11]; strncpy(lat, (char*)buf, 10); lat[10] = '\0';
+      display.println(lat);
+
       display.println("LONG: ");
-      //display.println((char*)buf);
+      char lon[11]; strncpy(lon, (char*)buf+11, 10); lon[10] = '\0';
+      display.println(lon);
+
+      display.println("ACC: ");
+      char acc[6]; strncpy(acc, (char*)buf+22, 5); acc[5] = '\0';
+      display.println(acc);
+
+      display.println("TEMP: ");
+      char temp[7]; strncpy(temp, (char*)buf+28, 6);temp[6] = '\0';
+      display.println(temp);
+
       display.println("ALT: ");
-      //display.println((char*)buf);
+      char alt[9]; strncpy(alt, (char*)buf+35, 8); alt[8] = '\0';
+      display.println(alt);
+
+      display.println("PRES: ");
+      char pres[8]; strncpy(pres, (char*)buf+44, 7); pres[7] = '\0';
+      display.println(pres);
+
       display.println("RSSI: ");
       display.println(rf95.lastRssi(), DEC);
       display.display();

@@ -62,7 +62,7 @@ void setup() {
   }
 
    // Flip the display 180 degrees
-  display.setRotation(2);
+  display.setRotation(1);
   pinMode(BUTTON_A, INPUT_PULLUP);
   pinMode(BUTTON_B, INPUT_PULLUP);
   pinMode(BUTTON_C, INPUT_PULLUP);
@@ -123,6 +123,7 @@ void loop() {
       Serial.println(rf95.lastRssi(), DEC);
 
       display.clearDisplay();
+      display.setRotation(1);
       display.setCursor(0, 0);
 
       display.println("TX# RCVD: ");
@@ -143,20 +144,36 @@ void loop() {
       char acc[6]; strncpy(acc, (char*)buf+22, 5); acc[5] = '\0';
       display.println(acc);
 
+      display.setCursor(64, 0);
+
       display.println("TEMP: ");
       char temp[7]; strncpy(temp, (char*)buf+28, 6);temp[6] = '\0';
+      display.setCursor(64, 8);
       display.println(temp);
 
+      display.setCursor(64, 16);
       display.println("ALT: ");
       char alt[9]; strncpy(alt, (char*)buf+35, 8); alt[8] = '\0';
+      display.setCursor(64, 24);
       display.println(alt);
 
+      display.setCursor(64, 32);
       display.println("PRES: ");
       char pres[8]; strncpy(pres, (char*)buf+44, 7); pres[7] = '\0';
+      display.setCursor(64, 40);
       display.println(pres);
 
+      display.setCursor(64, 48);
       display.println("RSSI: ");
+      display.setCursor(64, 56);
       display.println(rf95.lastRssi(), DEC);
+
+      display.setRotation(4);
+      display.setCursor(0,120);
+      display.print("BAT: ");
+      display.println(lipoVoltage);
+
+
       display.display();
 
       // Send a reply

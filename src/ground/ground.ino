@@ -37,6 +37,11 @@ RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
 // oled
 Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
+#define BUTTON_A 15
+#define BUTTON_B 32
+#define BUTTON_C 14
+
+float lipoVoltage;
 
 
 void setup() {
@@ -55,6 +60,12 @@ void setup() {
     Serial.println("Couldn't find SH1107");
     while (1);
   }
+
+   // Flip the display 180 degrees
+  display.setRotation(2);
+  pinMode(BUTTON_A, INPUT_PULLUP);
+  pinMode(BUTTON_B, INPUT_PULLUP);
+  pinMode(BUTTON_C, INPUT_PULLUP);
   display.display();
   delay(2000);
   display.clearDisplay();
@@ -93,6 +104,11 @@ void setup() {
 }
 
 void loop() {
+  // stuff
+  lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30;
+
+
+  // radio stuff
   if (rf95.available()) {
     // Should be a message for us now
     uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
@@ -108,16 +124,17 @@ void loop() {
 
       display.clearDisplay();
       display.setCursor(0, 0);
-      display.println("RCVD: ");
-      display.println((char*)buf);
+      display.println("TX# RCVD: ");
+      char txnum[6]; // Buffer for latitude string (4 characters + null terminator)
+      strncpy(txnum, (char*)buf+13, 5);
+      txnum[5] = '\0'; // Null-terminate the string      
+      display.println(txnum);
       display.println("LAT: ");
-      display.println((char*)buf);
+      //display.println((char*)buf);
       display.println("LONG: ");
-      display.println((char*)buf);
+      //display.println((char*)buf);
       display.println("ALT: ");
-      display.println((char*)buf);
-      display.println("TX#: ");
-      display.println((char*)buf);
+      //display.println((char*)buf);
       display.println("RSSI: ");
       display.println(rf95.lastRssi(), DEC);
       display.display();

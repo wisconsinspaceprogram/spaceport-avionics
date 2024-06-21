@@ -41,7 +41,8 @@ Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
 #define BUTTON_B 32
 #define BUTTON_C 14
 
-float lipoVoltage;
+float gndVoltage;
+
 
 
 void setup() {
@@ -105,8 +106,9 @@ void setup() {
 
 void loop() {
   // stuff
-  lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30;
-  // Serial.println(lipoVoltage);
+  gndVoltage = 2.0*analogRead(A13)/4098.0*3.30;
+
+  // Serial.println(gndVoltage);
 
   // radio stuff
   if (rf95.available()) {
@@ -114,11 +116,12 @@ void loop() {
     uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
     uint8_t len = sizeof(buf);
 
+
     if (rf95.recv(buf, &len)) {
       digitalWrite(LED_BUILTIN, HIGH);
       RH_RF95::printBuffer("Received: ", buf, len);
       Serial.print("Got: ");
-      Serial.println((char*)buf);
+      Serial.print((char*)buf);
        Serial.print("RSSI: ");
       Serial.println(rf95.lastRssi(), DEC);
 
@@ -126,52 +129,60 @@ void loop() {
       display.setRotation(1);
       display.setCursor(0, 0);
 
-      display.println("TX# RCVD: ");
+      display.print("TX# RCVD: ");
       char txnum[7]; // Buffer for string (5 characters + null terminator)
-      strncpy(txnum, (char*)buf+52, 6);
+      strncpy(txnum, (char*)buf+57, 6);
       txnum[6] = '\0'; // Null-terminate the string      
       display.println(txnum);
       
-      display.println("LAT: ");
+      display.print("LAT: ");
       char lat[11]; strncpy(lat, (char*)buf, 10); lat[10] = '\0';
       display.println(lat);
 
-      display.println("LONG: ");
+      display.print("LONG: ");
       char lon[11]; strncpy(lon, (char*)buf+11, 10); lon[10] = '\0';
       display.println(lon);
 
-      display.println("ACC: ");
+      display.print("ACC: ");
       char acc[6]; strncpy(acc, (char*)buf+22, 5); acc[5] = '\0';
       display.println(acc);
 
-      display.setCursor(64, 0);
+      //display.setCursor(64, 0);
 
-      display.println("TEMP: ");
+      display.print("TEMP: ");
       char temp[7]; strncpy(temp, (char*)buf+28, 6);temp[6] = '\0';
-      display.setCursor(64, 8);
+      //display.setCursor(64, 8);
       display.println(temp);
 
-      display.setCursor(64, 16);
-      display.println("ALT: ");
+      //display.setCursor(64, 16);
+      display.print("ALT: ");
       char alt[9]; strncpy(alt, (char*)buf+35, 8); alt[8] = '\0';
-      display.setCursor(64, 24);
+      //display.setCursor(64, 24);
       display.println(alt);
 
-      display.setCursor(64, 32);
-      display.println("PRES: ");
+      //display.setCursor(64, 32);
+      display.print("PRES: ");
       char pres[8]; strncpy(pres, (char*)buf+44, 7); pres[7] = '\0';
-      display.setCursor(64, 40);
+      //display.setCursor(64, 40);
       display.println(pres);
 
-      display.setCursor(64, 48);
-      display.println("RSSI: ");
-      display.setCursor(64, 56);
+      //display.setCursor(64, 48);
+      display.print("RSSI: ");
+      //display.setCursor(64, 56);
       display.println(rf95.lastRssi(), DEC);
 
+
       display.setRotation(4);
+
+
+      display.setCursor(0,112);
+      display.print("FBAT: ");
+      char fltVoltage[5]; strncpy(fltVoltage, (char*)buf+52, 4); fltVoltage[4] = '\0';
+      display.println(fltVoltage);
+
       display.setCursor(0,120);
-      display.print("BAT: ");
-      display.println(lipoVoltage);
+      display.print("GBAT: ");
+      display.println(gndVoltage);
 
 
       display.display();
@@ -184,7 +195,7 @@ void loop() {
       // digitalWrite(LED_BUILTIN, LOW);
     } else {
       Serial.println("Receive failed");
-    }
+    } 
   }
 }
 

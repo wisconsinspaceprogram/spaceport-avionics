@@ -1,11 +1,9 @@
-// Written by: Kyle Adler, Scott Russel,
+// Written by: Kyle Adler, Scott Russel, Josh Liu
 //
-// 11/20/2023
+// 06/17/2024
 //
 // Purpose: Keep time with RTC, log flight data and GPS to SD card and trasmit over LoRa.
 // Board: Adafruit ESP32 Feather, serial at 115200.
-//
-// Some code from https://randomnerdtutorials.com as well as example code from adafruit documentation.
 //
 //
 // !!! When powering from LiPo, ensure the polarity is correct per Adafruit's docs,
@@ -13,195 +11,192 @@
 // https://learn.adafruit.com/adafruit-huzzah32-esp32-feather/power-management
 
 
-// libraries:
-#include <Adafruit_GPS.h> // gps
-#include "FS.h" // sd
-#include "SD.h" // sd
-#include "SPI.h" // sd
+// Feather9x_RX
+// -*- mode: C++ -*-
+// Example sketch showing how to create a simple messaging client (receiver)
+// with the RH_RF95 class. RH_RF95 class does not provide for addressing or
+// reliability, so you should only use RH_RF95 if you do not need the higher
+// level messaging abilities.
+// It is designed to work with the other example Feather9x_TX
 
-// define A13 for lipo voltage
-//pinMode(A13, INPUT);
-float lipoVoltage;
+#include <SPI.h>
+#include <RH_RF95.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SH110X.h>
 
-// define CS pin for the SD card module
-#define SD_CS 4
+// Radio Set Up
+#define RFM95_INT 14 // E
+#define RFM95_CS 32 // D
+#define RFM95_RST 15 // C
+// Change to 434.0 or other frequency, must match RX's freq!
+#define RF95_FREQ 433.0
 
-// define gps serial
-#define GPSSerial Serial1
-// Connect to the GPS on the hardware port
-Adafruit_GPS GPS(&GPSSerial);
-// Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
-// Set to 'true' if you want to debug and listen to the raw GPS sentences
-#define GPSECHO false
-uint32_t timer = millis(); // time for timestamp
+// Singleton instance of the radio driver
+RH_RF95 rf95(RFM95_CS, RFM95_INT);
 
-// variables for logging/time
-String dataMessage;
+// oled
+Adafruit_SH1107 display = Adafruit_SH1107(64, 128, &Wire);
+#define BUTTON_A 15
+#define BUTTON_B 32
+#define BUTTON_C 14
 
-// --- functions for sd card --- 
+float gndVoltage;
 
-void logSDCard(String dataMessage) { // write the sensor readings on the SD card
-  // each "dataMessage" will be one line in the CSV output
-  Serial.print("Save data: ");
-  Serial.println(dataMessage);
-  appendFile(SD, "/data.csv", dataMessage.c_str());
-//  appendFile(SD, "/data.csv", dataMessage);
 
-}
-// write to the SD card (DON'T MODIFY THIS FUNCTION)
-void writeFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Writing file: %s\n", path);
-
-  File file = fs.open(path, FILE_WRITE);
-  if(!file) {
-    Serial.println("Failed to open file for writing");
-    return;
-  }
-  if(file.print(message)) {
-    Serial.println("File written");
-  } else {
-    Serial.println("Write failed");
-  }
-  file.close();
-}
-// append data to the SD card (DON'T MODIFY THIS FUNCTION)
-void appendFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Appending to file: %s\n", path);
-
-  File file = fs.open(path, FILE_APPEND);
-  if(!file) {
-    Serial.println("Failed to open file for appending");
-    return;
-  }
-  if(file.print(message)) {
-    Serial.println("Message appended");
-  } else {
-    Serial.println("Append failed");
-  }
-  file.close();
-}
-
-// --- end sd card functions ---
 
 void setup() {
-  //while (!Serial);  // uncomment to have the sketch wait until Serial is ready
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(RFM95_RST, OUTPUT);
+  digitalWrite(RFM95_RST, HIGH);
 
-  // put your setup code here, to run once:
-  // start serial for debugging
   Serial.begin(115200);
-  Serial.println("serial started");
+  while (!Serial) delay(1);
+  delay(100);
 
-  // gps
-  GPS.begin(9600);   // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
-  // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
-  GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-  // uncomment this line to turn on only the "minimum recommended" data
-  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
-  // For parsing data, we don't suggest using anything but either RMC only or RMC+GGA since
-  // the parser doesn't care about other sentences at this time
-  // Set the update rate
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 1 Hz update rate
-  // For the parsing code to work nicely and have time to sort thru the data, and
-  // print it out we don't suggest using anything higher than 1 Hz
+  Serial.println("Feather LoRa RX Test!");
 
-  // Request updates on antenna status, comment out to keep quiet
-  GPS.sendCommand(PGCMD_ANTENNA);
-
-  delay(1000); // delay after gps init
-
-  // Ask for firmware version
-  GPSSerial.println(PMTK_Q_RELEASE);
-
-  // initialize SD card
-  SD.begin(SD_CS);  
-  if(!SD.begin(SD_CS)) {
-    Serial.println("Card Mount Failed");
-    return;
+  // Initialize OLED
+  if (!display.begin(0x3C, true)) {
+    Serial.println("Couldn't find SH1107");
+    while (1);
   }
-  uint8_t cardType = SD.cardType();
-  if(cardType == CARD_NONE) {
-    Serial.println("No SD card attached");
-    return;
-  }
-  Serial.println("Initializing SD card...");
-  if (!SD.begin(SD_CS)) {
-    Serial.println("ERROR - SD card initialization failed!");
-    return;    // init failed
-  }
-  // if the data.csv file doesn't exist
-  // create a file on the SD card and write the data labels
-  File file = SD.open("/data.csv");
-  if(!file) {
-    Serial.println("File doesn't exist");
-    Serial.println("Creating file...");
-    writeFile(SD, "/data.csv", "Reading ID, Date, Time, RTC Temp (°C), Sensor 1 Temp, Sensor 2 Temp, Sensor 3 Temp, FDC 0-0, FDC 0-1, FDC 1-0, FDC 1-1, FDC 2-0, FDC 2-1, FDC 3-0, FDC 3-1, FDC 4-0, FDC 4-1, FDC 5-0, FDC 5-1 \r\n");
-  }
-  else {
-    Serial.println("File already exists");  
-  }
-  file.close();
 
+   // Flip the display 180 degrees
+  display.setRotation(1);
+  pinMode(BUTTON_A, INPUT_PULLUP);
+  pinMode(BUTTON_B, INPUT_PULLUP);
+  pinMode(BUTTON_C, INPUT_PULLUP);
+  display.display();
+  delay(2000);
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(SH110X_WHITE);
+  display.setCursor(0, 0);
+  display.println("Jus hangin around...");
+  display.display();
+
+  // manual reset
+  digitalWrite(RFM95_RST, LOW);
+  delay(10);
+  digitalWrite(RFM95_RST, HIGH);
+  delay(10);
+
+  while (!rf95.init()) {
+    Serial.println("LoRa radio init failed");
+    Serial.println("Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info");
+    while (1);
+  }
+  Serial.println("LoRa radio init OK!");
+
+  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+  if (!rf95.setFrequency(RF95_FREQ)) {
+    Serial.println("setFrequency failed");
+    while (1);
+  }
+  Serial.print("Set Freq to: "); Serial.println(RF95_FREQ);
+
+  // Defaults after init are 434.0MHz, 13dBm, Bw = 125 kHz, Cr = 4/5, Sf = 128chips/symbol, CRC on
+
+  // The default transmitter power is 13dBm, using PA_BOOST.
+  // If you are using RFM95/96/97/98 modules which uses the PA_BOOST transmitter pin, then
+  // you can set transmitter powers from 5 to 23 dBm:
+  rf95.setTxPower(23, false);
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  //Serial.println("serial test"); // test loop by echoing
+  // stuff
+  gndVoltage = 2.0*analogRead(A13)/4098.0*3.30;
 
-  // gps
-  // read data from the GPS in the 'main loop'
-  char c = GPS.read();
-  // if you want to debug, this is a good time to do it!
-  if (GPSECHO)
-    if (c) Serial.print(c);
-  // if a sentence is received, we can check the checksum, parse it...
-  if (GPS.newNMEAreceived()) {
-    // a tricky thing here is if we print the NMEA sentence, or data
-    // we end up not listening and catching other sentences!
-    // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-    Serial.print(GPS.lastNMEA()); // this also sets the newNMEAreceived() flag to false
-    if (!GPS.parse(GPS.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return; // we can fail to parse a sentence in which case we should just wait for another
+  // Serial.println(gndVoltage);
+
+  // radio stuff
+  if (rf95.available()) {
+    // Should be a message for us now
+    uint8_t buf[RH_RF95_MAX_MESSAGE_LEN];
+    uint8_t len = sizeof(buf);
+
+
+    if (rf95.recv(buf, &len)) {
+      digitalWrite(LED_BUILTIN, HIGH);
+      RH_RF95::printBuffer("Received: ", buf, len);
+      Serial.print("Got: ");
+      Serial.print((char*)buf);
+       Serial.print("RSSI: ");
+      Serial.println(rf95.lastRssi(), DEC);
+
+      display.clearDisplay();
+      display.setRotation(1);
+      display.setCursor(0, 0);
+
+      display.print("TX# RCVD: ");
+      char txnum[7]; // Buffer for string (5 characters + null terminator)
+      strncpy(txnum, (char*)buf+57, 6);
+      txnum[6] = '\0'; // Null-terminate the string      
+      display.println(txnum);
+      
+      display.print("LAT: ");
+      char lat[11]; strncpy(lat, (char*)buf, 10); lat[10] = '\0';
+      display.println(lat);
+
+      display.print("LONG: ");
+      char lon[11]; strncpy(lon, (char*)buf+11, 10); lon[10] = '\0';
+      display.println(lon);
+
+      display.print("ACC: ");
+      char acc[6]; strncpy(acc, (char*)buf+22, 5); acc[5] = '\0';
+      display.println(acc);
+
+      //display.setCursor(64, 0);
+
+      display.print("TEMP: ");
+      char temp[7]; strncpy(temp, (char*)buf+28, 6);temp[6] = '\0';
+      //display.setCursor(64, 8);
+      display.println(temp);
+
+      //display.setCursor(64, 16);
+      display.print("ALT: ");
+      char alt[9]; strncpy(alt, (char*)buf+35, 8); alt[8] = '\0';
+      //display.setCursor(64, 24);
+      display.println(alt);
+
+      //display.setCursor(64, 32);
+      display.print("PRES: ");
+      char pres[8]; strncpy(pres, (char*)buf+44, 7); pres[7] = '\0';
+      //display.setCursor(64, 40);
+      display.println(pres);
+
+      //display.setCursor(64, 48);
+      display.print("RSSI: ");
+      //display.setCursor(64, 56);
+      display.println(rf95.lastRssi(), DEC);
+
+
+      display.setRotation(4);
+
+
+      display.setCursor(0,112);
+      display.print("FBAT: ");
+      char fltVoltage[5]; strncpy(fltVoltage, (char*)buf+52, 4); fltVoltage[4] = '\0';
+      display.println(fltVoltage);
+
+      display.setCursor(0,120);
+      display.print("GBAT: ");
+      display.println(gndVoltage);
+
+
+      display.display();
+
+      // Send a reply
+      // uint8_t data[] = "And hello back to you";
+      // rf95.send(data, sizeof(data));
+      // rf95.waitPacketSent();
+      // Serial.println("Sent a reply");
+      // digitalWrite(LED_BUILTIN, LOW);
+    } else {
+      Serial.println("Receive failed");
+    } 
   }
-
-  // approximately every 2 seconds or so, print out the current stats
-  if (millis() - timer > 2000) {
-    timer = millis(); // reset the timer
-    Serial.print("\nTime: ");
-    if (GPS.hour < 10) { Serial.print('0'); }
-    Serial.print(GPS.hour, DEC); Serial.print(':');
-    if (GPS.minute < 10) { Serial.print('0'); }
-    Serial.print(GPS.minute, DEC); Serial.print(':');
-    if (GPS.seconds < 10) { Serial.print('0'); }
-    Serial.print(GPS.seconds, DEC); Serial.print('.');
-    if (GPS.milliseconds < 10) {
-      Serial.print("00");
-    } else if (GPS.milliseconds > 9 && GPS.milliseconds < 100) {
-      Serial.print("0");
-    }
-    Serial.println(GPS.milliseconds);
-    Serial.print("Date: ");
-    Serial.print(GPS.day, DEC); Serial.print('/');
-    Serial.print(GPS.month, DEC); Serial.print("/20");
-    Serial.println(GPS.year, DEC);
-    Serial.print("Fix: "); Serial.print((int)GPS.fix);
-    Serial.print(" quality: "); Serial.println((int)GPS.fixquality);
-    if (GPS.fix) {
-      Serial.print("Location: ");
-      Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
-      Serial.print(", ");
-      Serial.print(GPS.longitude, 4); Serial.println(GPS.lon);
-      Serial.print("Speed (knots): "); Serial.println(GPS.speed);
-      Serial.print("Angle: "); Serial.println(GPS.angle);
-      Serial.print("Altitude: "); Serial.println(GPS.altitude);
-      Serial.print("Satellites: "); Serial.println((int)GPS.satellites);
-      Serial.print("Antenna status: "); Serial.println((int)GPS.antenna);
-    }
-
-    logSDCard(String(GPS.milliseconds));
-    //appendFile(
-
-  lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30; // read battery voltage, analog pin reads half voltage, divide by resolution of ADC and multiply by board voltage
-//  Serial.println(lipoVoltage);
-  delay(100); 
 }
-}
+
+

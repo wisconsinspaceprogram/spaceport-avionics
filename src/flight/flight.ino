@@ -1,224 +1,335 @@
-// Written by: Kyle Adler,
-//
-// 03/30/2023
-//
-// Purpose: Keep time with RTC, log flight data and GPS to SD card and trasmit over LoRa.
-// Board: Adafruit ESP32 Feather, serial at 115200.
-//
-// Code from https://randomnerdtutorials.com as well as example code from adafruit documentation.
-//
-//
-// !!! When powering from LiPo, ensure the polarity is correct per Adafruit's docs,
-// don't fry your charging circuit like I did.
-// https://learn.adafruit.com/adafruit-huzzah32-esp32-feather/power-management
-//
-// libraries:
-
-// gps
+#include <Servo.h>
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_MPL3115A2.h>
 #include <Adafruit_GPS.h>
+#include <SPI.h>
+#include <SD.h>
+#include <RTClib.h>
+#include <Adafruit_ADXL345_U.h>
+#include <RH_RF95.h>
+#include <math.h>
 
+int servoPin = 13;        // PWM pin connected to the servo
+int startPosition = 105;  // Starting position of the servo (in degrees)
+int targetPosition = 80;  // Target position of the servo (startPosition - 25 degrees)
+int delayTime = 1000;     // Delay time in milliseconds (1 second)
 
-// libraries for SD card
-#include "FS.h"
-#include "SD.h"
-#include "SPI.h"
+String fileName = "/spaceport2024.txt";
 
+float startHeight_ft;
+float latitude;
+float longitude;
+float altitude_meters;
+float pressure;
+float temperature;
+float targetHeight_ft;  //target height adjusted after current height is found, from ft -> m
+float projection;
+int servoDeg = 0;
+boolean engageFlaps = false;
+float flapPosition = 0;  // 1 for open, 0 for closed
+//Needed for velocity
+unsigned long lastCalc;
+float lastHeight;
+float velocity;
+float acceleration;
 
-// define A13 for lipo voltage
-//pinMode(A13, INPUT);
+sensors_event_t event;
+
+// Servo
+Servo servo1;
+
+// GPS
+#define GPSSerial Serial1
+Adafruit_GPS GPS(&GPSSerial);
+
+// Accelerometer
+Adafruit_ADXL345_Unified accelerometer = Adafruit_ADXL345_Unified(0x53);
+
+// Barometric Pressure Sensor
+Adafruit_MPL3115A2 altimeter;
+
+// RTC and SD card
+RTC_PCF8523 rtc;
+const int chipSelect = 33;
+File logFile;
+
+// Radio Set Up
+#define RFM95_INT 14  // E
+#define RFM95_CS 32   // D
+#define RFM95_RST 15  // C
+// Change to 434.0 or other frequency, must match RX's freq!
+#define RF95_FREQ 433.0
+
+// Singleton instance of the radio driver
+RH_RF95 rf95(RFM95_CS, RFM95_INT);
+
 float lipoVoltage;
 
 
-// define CS pin for the SD card module
-#define SD_CS 33 // SD card pin is 33 for esp32
-
-// define gps serial
-#define GPSSerial Serial1
-// Connect to the GPS on the hardware port
-Adafruit_GPS GPS(&GPSSerial);
-// Set GPSECHO to 'false' to turn off echoing the GPS data to the Serial console
-// Set to 'true' if you want to debug and listen to the raw GPS sentences
-#define GPSECHO false
-uint32_t timer = millis();
-
-// variables for logging/time
-String dataMessage;
-
-
-// --- functions for sd card --- 
-
-
-
-
-void logSDCard(String dataMessage) { // write the sensor readings on the SD card
-  // each "dataMessage" will be one line in the CSV output
-  Serial.print("Save data: ");
-  Serial.println(dataMessage);
-  appendFile(SD, "/data.csv", dataMessage.c_str());
-//  appendFile(SD, "/data.csv", dataMessage);
-
-}
-
-
-// write to the SD card (DON'T MODIFY THIS FUNCTION)
-void writeFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Writing file: %s\n", path);
-
-  File file = fs.open(path, FILE_WRITE);
-  if(!file) {
-    Serial.println("Failed to open file for writing");
-    return;
-  }
-  if(file.print(message)) {
-    Serial.println("File written");
-  } else {
-    Serial.println("Write failed");
-  }
-  file.close();
-}
-
-// append data to the SD card (DON'T MODIFY THIS FUNCTION)
-void appendFile(fs::FS &fs, const char * path, const char * message) {
-  Serial.printf("Appending to file: %s\n", path);
-
-  File file = fs.open(path, FILE_APPEND);
-  if(!file) {
-    Serial.println("Failed to open file for appending");
-    return;
-  }
-  if(file.print(message)) {
-    Serial.println("Message appended");
-  } else {
-    Serial.println("Append failed");
-  }
-  file.close();
-}
-
-// --- end functions ---
-
-
-
 void setup() {
-  //while (!Serial);  // uncomment to have the sketch wait until Serial is ready
+#define buzzer 27
+  pinMode(27, OUTPUT);  // Buzzer
 
-  // put your setup code here, to run once:
-  // start serial for debugging
+  // Initialize serial communication
   Serial.begin(115200);
-  Serial.println("serial started");
+  while (!Serial)
+    ;
 
-  // gps
-  // 9600 NMEA is the default baud rate for Adafruit MTK GPS's- some use 4800
+  // Initialize GPS
+  Serial.println("Initializing GPS");
+  //GPSSerial.begin(9600);
   GPS.begin(9600);
-  // uncomment this line to turn on RMC (recommended minimum) and GGA (fix data) including altitude
   GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCGGA);
-  // uncomment this line to turn on only the "minimum recommended" data
-  //GPS.sendCommand(PMTK_SET_NMEA_OUTPUT_RMCONLY);
-  // For parsing data, we don't suggest using anything but either RMC only or RMC+GGA since
-  // the parser doesn't care about other sentences at this time
-  // Set the update rate
-  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_1HZ); // 1 Hz update rate
-  // For the parsing code to work nicely and have time to sort thru the data, and
-  // print it out we don't suggest using anything higher than 1 Hz
+  GPS.sendCommand(PMTK_SET_NMEA_UPDATE_10HZ);
 
-  // Request updates on antenna status, comment out to keep quiet
-  GPS.sendCommand(PGCMD_ANTENNA);
+  digitalWrite(buzzer, HIGH);
+  delay(200);
+  digitalWrite(buzzer, LOW);
+  delay(400);
 
-  delay(1000);
 
-  // Ask for firmware version
-  GPSSerial.println(PMTK_Q_RELEASE);
+  // Initialize accelerometer
+  Serial.println("Initializing Accelerometer");
+  if (!accelerometer.begin()) {
+    Serial.println("Could not start accelerometer!");
+    while (1)
+      ;
+  }
+  accelerometer.setRange(ADXL345_RANGE_2_G);
 
-  // initialize SD card
-  SD.begin(SD_CS);  
-  if(!SD.begin(SD_CS)) {
-    Serial.println("Card Mount Failed");
-    return;
-  }
-  uint8_t cardType = SD.cardType();
-  if(cardType == CARD_NONE) {
-    Serial.println("No SD card attached");
-    return;
-  }
-  Serial.println("Initializing SD card...");
-  if (!SD.begin(SD_CS)) {
-    Serial.println("ERROR - SD card initialization failed!");
-    return;    // init failed
-  }
-  // if the data.csv file doesn't exist
-  // create a file on the SD card and write the data labels
-  File file = SD.open("/data.csv");
-  if(!file) {
-    Serial.println("File doesn't exist");
-    Serial.println("Creating file...");
-    writeFile(SD, "/data.csv", "Reading ID, Date, Time, RTC Temp (°C), Sensor 1 Temp, Sensor 2 Temp, Sensor 3 Temp, FDC 0-0, FDC 0-1, FDC 1-0, FDC 1-1, FDC 2-0, FDC 2-1, FDC 3-0, FDC 3-1, FDC 4-0, FDC 4-1, FDC 5-0, FDC 5-1 \r\n");
-  }
-  else {
-    Serial.println("File already exists");  
-  }
-  file.close();
+  digitalWrite(buzzer, HIGH);
+  delay(200);
+  digitalWrite(buzzer, LOW);
+  delay(200);
+  digitalWrite(buzzer, HIGH);
+  delay(200);
+  digitalWrite(buzzer, LOW);
 
+  // Initialize barometric pressure sensor
+  Serial.println("Initializing Altimeter");
+  if (!altimeter.begin()) {
+    Serial.println("Could not start barometric pressure sensor!");
+    while (1)
+      ;
+  }
+  // use to set sea level pressure for current location
+  // this is needed for accurate altitude measurement
+  // STD SLP = 1013.26 hPa
+  altimeter.setSeaPressure(1010.16);
+  altimeter.setMode(MPL3115A2_ALTIMETER);
+  //altimeter.startOneShot(); // get first data
+
+  // Initialize RTC
+  Serial.println("Initializing RTC");
+  if (!rtc.begin()) {
+    Serial.println("Couldn't find RTC");
+    while (1)
+      ;
+  }
+  if (rtc.lostPower()) {
+    Serial.println("RTC lost power, let's set the time!");
+    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
+  }
+
+  // Initialize SD card
+  Serial.println("Initializing SD Card Reader");
+  if (!SD.begin(chipSelect)) {
+    Serial.println("Card failed, or not present");
+    while (1)
+      ;
+  }
+
+  pinMode(RFM95_RST, OUTPUT);
+  digitalWrite(RFM95_RST, HIGH);
+
+  Serial.begin(115200);
+  while (!Serial) delay(1);
+  delay(100);
+
+  Serial.println("Feather LoRa TX Test!");
+
+  // manual reset
+  digitalWrite(RFM95_RST, LOW);
+  delay(10);
+  digitalWrite(RFM95_RST, HIGH);
+  delay(10);
+
+  while (!rf95.init()) {
+    Serial.println("LoRa radio init failed");
+    Serial.println("Uncomment '#define SERIAL_DEBUG' in RH_RF95.cpp for detailed debug info");
+    while (1)
+      ;
+  }
+  Serial.println("LoRa radio init OK!");
+
+  // Defaults after init are 434.0MHz, modulation GFSK_Rb250Fd250, +13dbM
+  if (!rf95.setFrequency(RF95_FREQ)) {
+    Serial.println("setFrequency failed");
+    while (1)
+      ;
+  }
+  rf95.setTxPower(23, false);
+
+
+
+  // Serial.println("Opening Log File");
+  // logFile = SD.open(fileName, FILE_WRITE);
+  // if (!logFile) {
+  //   Serial.println("Failed to open file");
+  //   while (1);
+  // }
+
+  // Write header to the file
+  logFile = SD.open(fileName, FILE_WRITE);
+  logFile.println("Time,Latitude,Longitude,Acceleration (X),Projection,Flaps,Temperature,Altitude,Pressure");
+  logFile.flush();
+  logFile.close();
+
+  
+  servo1.attach(servoPin);  // Attaches the servo on the specified pin to the servo object
+  servo1.write(startPosition);  // Move servo to start position
+  delay(3000);  // Wait 3 seconds for servo to reach the starting position
+
+
+  altimeter.setMode(MPL3115A2_ALTIMETER);
+  altimeter.startOneShot();
+  while (!altimeter.conversionComplete()) {
+  }
+  
+  startHeight_ft = altimeter.getLastConversionResults(MPL3115A2_ALTITUDE) * 3.28084;
+  targetHeight_ft = startHeight_ft + 10000;
 }
+
+void flaps() {
+  velocity = (altitude_meters - lastHeight) / ((lastCalc - millis()) * 0.001);
+  projection = altitude_meters - ((velocity * velocity ) / 2 * (event.acceleration.x + 10.1));
+
+
+  if (projection > targetHeight_ft) {
+    // extend flaps
+    servoDeg = max(servoDeg - 5, 80);
+    servo1.write(servoDeg);
+    flapPosition = 1 - servoDeg - 80 / 25;
+  } else if (projection < targetHeight_ft) {
+    // retract flaps
+    servoDeg = min(servoDeg + 5, 105);
+    servo1.write(servoDeg);
+    flapPosition = 1 - servoDeg - 105 / 25;
+  }
+
+  // Log the data
+  logData();
+
+  lastCalc = millis();
+  lastHeight = altitude_meters;
+}
+
+
+// Function to convert GPS coordinates from ddmm.mmmmm format to decimal degrees
+float convertToDecimalDegrees(float coordinate) {
+  int degrees = (int)(coordinate / 100);
+  float minutes = coordinate - (degrees * 100);
+  return degrees + (minutes / 60);
+}
+
+int16_t packetnum = 0;  // packet counter, we increment per xmission
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  //Serial.println("serial test");
+  
 
-  // gps
-  // read data from the GPS in the 'main loop'
-  char c = GPS.read();
-  // if you want to debug, this is a good time to do it!
-  if (GPSECHO)
-    if (c) Serial.print(c);
-  // if a sentence is received, we can check the checksum, parse it...
-  if (GPS.newNMEAreceived()) {
-    // a tricky thing here is if we print the NMEA sentence, or data
-    // we end up not listening and catching other sentences!
-    // so be very wary if using OUTPUT_ALLDATA and trying to print out data
-    Serial.print(GPS.lastNMEA()); // this also sets the newNMEAreceived() flag to false
-    if (!GPS.parse(GPS.lastNMEA())) // this also sets the newNMEAreceived() flag to false
-      return; // we can fail to parse a sentence in which case we should just wait for another
+
+  // Read data from the GPS module
+
+  while (GPSSerial.available()) {
+    char c = GPS.read();
+    if (GPS.newNMEAreceived()) {
+      if (!GPS.parse(GPS.lastNMEA())) {
+        Serial.println("Failed to parse GPS data");
+      } else {
+        // Convert latitude and longitude to decimal degrees
+        //Does not account for N/S and E/W negatives
+        latitude = convertToDecimalDegrees(GPS.latitude);
+        longitude = convertToDecimalDegrees(GPS.longitude);
+        //Serial.println("New GPS data parsed successfully");
+      }
+    }
   }
 
-  // approximately every 1 second or so, print out the current stats
-  if (millis() - timer > 1000) {
-    timer = millis(); // reset the timer
-    Serial.print("\nTime: ");
-    if (GPS.hour < 10) { Serial.print('0'); }
-    Serial.print(GPS.hour, DEC); Serial.print(':');
-    if (GPS.minute < 10) { Serial.print('0'); }
-    Serial.print(GPS.minute, DEC); Serial.print(':');
-    if (GPS.seconds < 10) { Serial.print('0'); }
-    Serial.print(GPS.seconds, DEC); Serial.print('.');
-    if (GPS.milliseconds < 10) {
-      Serial.print("00");
-    } else if (GPS.milliseconds > 9 && GPS.milliseconds < 100) {
-      Serial.print("0");
+
+  // Read data from accelerometer
+  accelerometer.getEvent(&event);
+
+
+  //altitude = altimeter.getAltitude();
+  altimeter.setMode(MPL3115A2_ALTIMETER);
+  altimeter.startOneShot();
+  while (!altimeter.conversionComplete()) {
+    if (engageFlaps) flaps();
+  }
+  altitude_meters = altimeter.getLastConversionResults(MPL3115A2_ALTITUDE);
+  if (!engageFlaps) {
+    if ((event.acceleration.x + 10.1) < -5 && altitude_meters > (startHeight_ft/3.28084) + 500) { //Units wrong during test launch. Fixed now
+      delay(2000);
+      engageFlaps = true;
+      lastHeight = altitude_meters;
+      lastCalc = millis() - 1;
     }
-    Serial.println(GPS.milliseconds);
-    Serial.print("Date: ");
-    Serial.print(GPS.day, DEC); Serial.print('/');
-    Serial.print(GPS.month, DEC); Serial.print("/20");
-    Serial.println(GPS.year, DEC);
-    Serial.print("Fix: "); Serial.print((int)GPS.fix);
-    Serial.print(" quality: "); Serial.println((int)GPS.fixquality);
-    if (GPS.fix) {
-      Serial.print("Location: ");
-      Serial.print(GPS.latitude, 4); Serial.print(GPS.lat);
-      Serial.print(", ");
-      Serial.print(GPS.longitude, 4); Serial.println(GPS.lon);
-      Serial.print("Speed (knots): "); Serial.println(GPS.speed);
-      Serial.print("Angle: "); Serial.println(GPS.angle);
-      Serial.print("Altitude: "); Serial.println(GPS.altitude);
-      Serial.print("Satellites: "); Serial.println((int)GPS.satellites);
-      Serial.print("Antenna status: "); Serial.println((int)GPS.antenna);
-    }
-
-    logSDCard(String(GPS.year));
-    //appendFile(
+  }
 
 
-  lipoVoltage = 2.0*analogRead(A13)/4098.0*3.30;
-//  Serial.println(lipoVoltage);
-  delay(100); 
+  pressure = altimeter.getPressure();
+  temperature = altimeter.getTemperature() * 9 / 5 + 32;
+
+  // Transmitting Data
+  char radiopacket[63] = "                                                              ";
+  dtostrf(latitude, 10, 6, radiopacket);
+  radiopacket[10] = ',';
+  dtostrf(longitude, 10, 6, radiopacket + 11);
+  radiopacket[21] = ',';
+  dtostrf((event.acceleration.x + 10.1), 5, 2, radiopacket + 22);
+  radiopacket[27] = ',';
+  dtostrf(temperature, 6, 2, radiopacket + 28);
+  radiopacket[34] = ',';
+  dtostrf(altitude_meters * 3.28084, 8, 2, radiopacket + 35);
+  radiopacket[43] = ',';
+  dtostrf(pressure, 7, 2, radiopacket + 44);
+  radiopacket[51] = ',';
+  dtostrf(2.0 * analogRead(A13) / 4098.0 * 3.30, 4, 2, radiopacket + 52);
+  radiopacket[56] = ',';
+  itoa(packetnum++, radiopacket + 57, 10);
+  radiopacket[62] = '\0';
+  Serial.println(radiopacket);
+
+  rf95.send((uint8_t *)radiopacket, 63);
+  rf95.waitPacketSent();
+  logData();
+  delay(10);
 }
+
+void logData() {
+  logFile = SD.open(fileName, FILE_APPEND);
+  if (logFile) {
+    Serial.println("logging data...");
+    logFile.print(rtc.now().timestamp());
+    logFile.print(",");
+    logFile.print(latitude, 6);
+    logFile.print(",");
+    logFile.print(longitude, 6);
+    logFile.print(",");
+    logFile.print((event.acceleration.x + 10.1));
+    logFile.print(",");
+    logFile.print(projection);
+    logFile.print(",");
+    logFile.print(flapPosition);
+    logFile.print(",");
+    logFile.print(temperature);
+    logFile.print(",");
+    logFile.print(altitude_meters);
+    logFile.print(",");
+    logFile.print(pressure);
+    logFile.println("");
+    logFile.flush();
+    logFile.close();
+  }
 }
